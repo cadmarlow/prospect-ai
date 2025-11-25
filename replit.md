@@ -1,41 +1,56 @@
-# ProspectAI - Outil de Prospection Automatisé
+# ProspectAI - Outil de Prospection Automatisé Production-Ready
 
 Application fullstack de prospection pour agences de développement spécialisées en immobilier d'entreprise.
 
 ## 📋 Vue d'ensemble
 
-ProspectAI est un outil complet de prospection qui automatise la collecte de prospects depuis diverses sources (Pages Jaunes, CCI), génère des emails personnalisés avec l'IA, et permet de gérer des campagnes d'emailing en masse.
+ProspectAI est un outil complet de prospection qui:
+- **Scrape intelligemment** via Firecrawl + GPT-4 (gestion auto des CAPTCHAs)
+- **Génère des emails personnalisés** avec OpenAI GPT-4
+- **Envoie de vrais emails** via Resend avec tracking
+- **Gère des campagnes complètes** avec throttling et statistiques
 
-## 🎯 Fonctionnalités principales
+## 🎯 Fonctionnalités Principales
 
-### ✅ Implémenté (MVP)
-- **Dashboard** : Statistiques en temps réel (prospects totaux, emails envoyés, taux d'ouverture, conversion)
-- **Gestion des Prospects** : Base de données PostgreSQL avec filtres par région, statut, recherche textuelle
-- **Scraping Web Automatisé** : Collecte automatique depuis Pages Jaunes et CCI France
-- **Templates d'Emails** : Système de templates réutilisables avec variables dynamiques
-- **Génération IA** : Emails personnalisés via OpenAI GPT-5
-- **Campagnes d'Emailing** : Envoi en masse avec suivi
-- **Export CSV** : Export complet des prospects avec échappement CSV correct
-- **Dark Mode** : Thème sombre avec persistance localStorage
+### ✅ Scraping IA avec Firecrawl
+- **Sources supportées**: Pages Jaunes, CCI France, LinkedIn (via Google)
+- **URL personnalisées**: Possibilité de scraper n'importe quel site
+- **Paramètres configurables**: Mots-clés, régions, nombre de résultats (5-100)
+- **Extraction IA**: GPT-4 analyse le contenu et extrait les données structurées
+- **Gestion automatique**: CAPTCHAs, JavaScript, anti-bots
+
+### ✅ Envoi d'Emails avec Resend
+- **Intégration native Replit**: Gestion automatique des credentials
+- **Templates personnalisables**: Variables {{companyName}}, {{domain}}, {{region}}, etc.
+- **Personnalisation IA**: GPT-4 adapte chaque email au prospect
+- **Throttling intelligent**: 1 email/seconde pour éviter le spam
+- **Tracking**: Envoyés, erreurs, statuts des campagnes
+
+### ✅ Interface Complète
+- **Dashboard**: Statistiques en temps réel
+- **Prospects**: Table avec filtres, recherche, export CSV
+- **Templates**: Création et gestion de templates d'emails
+- **Campagnes**: Lancement et suivi des campagnes
+- **Scraping**: Interface complète avec options avancées
+- **Dark Mode**: Thème sombre avec persistance
 
 ## 🏗️ Architecture
 
 ### Frontend
-- **Framework** : React 18 avec TypeScript
-- **Routing** : Wouter
-- **UI Components** : Shadcn UI (Radix primitives + Tailwind CSS)
-- **Data Fetching** : TanStack Query v5
-- **Forms** : React Hook Form + Zod validation
-- **Styling** : Tailwind CSS avec design system personnalisé (Inter font)
+- **Framework**: React 18 avec TypeScript
+- **Routing**: Wouter
+- **UI**: Shadcn UI (Radix + Tailwind CSS)
+- **Data Fetching**: TanStack Query v5
+- **Forms**: React Hook Form + Zod
 
 ### Backend
-- **Runtime** : Node.js avec Express
-- **Database** : PostgreSQL (Neon) avec Drizzle ORM
-- **Services** :
-  - Web Scraper (scraping asynchrone)
-  - Email Generator (OpenAI GPT-5 integration)
-  - Email Sender (envoi en masse)
-- **API** : REST avec validation Zod
+- **Runtime**: Node.js avec Express
+- **Database**: PostgreSQL (Neon) avec Drizzle ORM
+- **Services**:
+  - `firecrawl-scraper.ts`: Scraping IA avec Firecrawl + GPT-4
+  - `email-generator.ts`: Génération d'emails personnalisés avec OpenAI
+  - `resend-email-sender.ts`: Envoi d'emails via Resend
+- **API**: REST avec validation Zod
 
 ## 📁 Structure du projet
 
@@ -55,42 +70,55 @@ ProspectAI est un outil complet de prospection qui automatise la collecte de pro
 │   │   └── App.tsx
 ├── server/
 │   ├── services/
-│   │   ├── scraper.ts       # Web scraping logic
-│   │   ├── email-generator.ts  # OpenAI integration
-│   │   └── email-sender.ts  # Bulk email sending
-│   ├── db.ts                # Database connection
-│   ├── storage.ts           # Database operations
-│   └── routes.ts            # API endpoints
+│   │   ├── firecrawl-scraper.ts  # Scraping IA
+│   │   ├── email-generator.ts     # OpenAI integration
+│   │   └── resend-email-sender.ts # Envoi emails Resend
+│   ├── db.ts
+│   ├── storage.ts
+│   └── routes.ts
 └── shared/
-    └── schema.ts            # Drizzle schemas + Zod validation
+    └── schema.ts
 ```
 
 ## 🔧 Configuration
 
-### Variables d'environnement
-- `DATABASE_URL` : PostgreSQL connection string (auto-configurée par Replit)
-- `OPENAI_API_KEY` : Clé API OpenAI pour génération d'emails
-- `SESSION_SECRET` : Secret pour sessions Express
+### Variables d'environnement (Secrets)
+- `DATABASE_URL`: PostgreSQL connection string
+- `FIRECRAWL_API_KEY`: Clé API Firecrawl (https://firecrawl.dev)
+- `OPENAI_API_KEY`: Clé API OpenAI
+
+### Intégrations Replit
+- **Resend**: Configuré via le connecteur Replit (gestion auto des credentials)
+- **PostgreSQL**: Base de données Neon intégrée
 
 ### Base de données
-Tables principales :
-- `prospects` : Informations des prospects scrapés
-- `email_templates` : Templates d'emails réutilisables
-- `campaigns` : Campagnes d'emailing avec métriques
-- `email_sends` : Historique d'envois individuels
-- `scraping_jobs` : Jobs de scraping avec statuts
+Tables principales:
+- `prospects`: Entreprises scrapées
+- `email_templates`: Templates réutilisables
+- `campaigns`: Campagnes avec métriques
+- `email_sends`: Historique d'envois
+- `scraping_jobs`: Jobs de scraping
 
-## 🚀 Développement
+## 🚀 Utilisation
 
-### Commandes
-- `npm run dev` : Démarre le serveur de développement (Express + Vite)
-- `npm run db:push` : Synchronise le schéma avec la base de données
+### 1. Scraper des prospects
+1. Aller dans l'onglet "Scraping"
+2. Cliquer sur "Nouveau Scraping IA"
+3. Configurer: source, région, type d'activité
+4. (Optionnel) Options avancées: mots-clés, nombre max
+5. Lancer le scraping
 
-### Workflow
-Le workflow "Start application" lance automatiquement `npm run dev` qui :
-1. Démarre Express sur le port 5000
-2. Sert le frontend Vite
-3. Expose les API REST sur `/api/*`
+### 2. Créer un template
+1. Aller dans l'onglet "Templates"
+2. Cliquer sur "Nouveau Template"
+3. Utiliser les variables: `{{companyName}}`, `{{domain}}`, `{{region}}`
+4. Le système ajoute automatiquement `{{aiPersonalization}}`
+
+### 3. Lancer une campagne
+1. Aller dans l'onglet "Campagnes"
+2. Vérifier que Resend est connecté (badge vert)
+3. Créer une campagne avec un template
+4. Lancer la campagne (envoi avec throttling 1/s)
 
 ## 📊 Schémas de données
 
@@ -106,9 +134,10 @@ Le workflow "Start application" lance automatiquement `npm run dev` qui :
   city?: string
   region?: string
   activityType?: string
-  source: string (pagesjaunes | cci)
-  status: string (new | contacted | qualified)
+  source: string
+  status: "new" | "contacted" | "qualified"
   scrapedAt: Date
+  lastContactedAt?: Date
 }
 ```
 
@@ -118,7 +147,7 @@ Le workflow "Start application" lance automatiquement `npm run dev` qui :
   id: string (UUID)
   name: string
   subject: string
-  body: string  // Supporte {{companyName}}, {{domain}}, {{region}}, {{aiPersonalization}}
+  body: string
   category?: string
   createdAt: Date
 }
@@ -126,59 +155,32 @@ Le workflow "Start application" lance automatiquement `npm run dev` qui :
 
 ## 🎨 Design System
 
-### Couleurs
-- Primary: HSL(217, 91%, 48%) - Bleu professionnel
-- Sidebar: Ton gris clair/foncé selon le thème
-- Cards: Légèrement élevées par rapport au background
-
-### Typographie
-- Font principale : Inter
-- Font monospace : JetBrains Mono (pour emails, domaines)
-
-### Composants
-- Tous les éléments interactifs ont des `data-testid` pour les tests
-- Utilisation systématique des composants Shadcn
-- Sidebar navigation fixe avec indicateur de page active
-
-## 🧪 Tests
-
-Tests end-to-end avec Playwright vérifiant :
-- Navigation entre pages
-- Création de templates
-- Lancement de scraping
-- Affichage des prospects
-- Toggle du dark mode
-
-Status : ✅ Tous les tests passent
-
-## 📈 Prochaines fonctionnalités
-
-1. **Intégration LinkedIn** : Enrichissement des données prospects
-2. **Validation d'emails** : Vérification automatique de validité
-3. **Tracking avancé** : Ouvertures et clics dans les emails
-4. **Relances automatiques** : Gestion intelligente des réponses
-5. **Intégration CRM** : Synchronisation avec CRMs populaires
+- **Font**: Inter
+- **Primary**: Bleu professionnel HSL(217, 91%, 48%)
+- **Components**: Shadcn UI
+- **Test IDs**: Tous les éléments interactifs
 
 ## 🔐 Sécurité
 
-- Toutes les clés API sont stockées dans Replit Secrets
+- Clés API stockées dans Replit Secrets
 - Validation Zod sur tous les endpoints
-- Échappement CSV pour éviter les injections
-- Pas d'exposition de données sensibles dans les logs (email bodies filtrés)
+- Throttling pour éviter le spam
+- Pas d'exposition de données sensibles
 
-## 📝 Notes techniques
+## 📈 Limites et Coûts
 
-- Le scraping génère actuellement des données de test (3-5 prospects par job)
-- Les emails ne sont pas réellement envoyés (console logs pour le développement)
-- OpenAI GPT-5 est utilisé pour la personnalisation avancée
-- React Query utilise un fetcher global pour simplifier les requêtes
+### Firecrawl
+- Plan gratuit: 500 crédits
+- ~$0.64 / 1000 pages
 
-## 👥 Utilisateurs cibles
+### Resend
+- Plan gratuit: 100 emails/jour
+- Plan payant: À partir de $20/mois
 
-- Agences de développement web spécialisées en immobilier
-- Consultants immobiliers d'entreprise
-- Gestionnaires de patrimoine professionnel
+### OpenAI
+- Utilise GPT-4o
+- ~$0.01-0.03 / email personnalisé
 
 ## 🌐 Déploiement
 
-L'application est prête pour le déploiement via Replit Deployments (publier).
+L'application est prête pour le déploiement via Replit Deployments.

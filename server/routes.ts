@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { firecrawlScraper } from "./services/firecrawl-scraper";
 import { emailGenerator } from "./services/email-generator";
-import { emailSender } from "./services/email-sender";
+import { resendEmailSender } from "./services/resend-email-sender";
 import { insertProspectSchema, insertEmailTemplateSchema, insertCampaignSchema, insertScrapingJobSchema } from "@shared/schema";
 import { z } from "zod";
 
@@ -144,41 +144,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const prospects = await storage.getProspects();
+      const prospectsWithEmail = prospects.filter(p => p.email && p.email.includes('@'));
       
+      if (prospectsWithEmail.length === 0) {
+        return res.status(400).json({ error: "No prospects with valid email addresses" });
+      }
+
       await storage.updateCampaign(campaignId, {
         status: "active",
         startedAt: new Date(),
-        totalRecipients: prospects.length,
+        totalRecipients: prospectsWithEmail.length,
       });
 
       setImmediate(async () => {
-        const result = await emailSender.sendBulkEmails(
-          campaign,
-          prospects,
-          template.subject,
-          async (prospect) => {
-            const { body } = await emailGenerator.generatePersonalizedEmail({
-              companyName: prospect.companyName,
-              domain: prospect.domain || undefined,
-              region: prospect.region || undefined,
-              activityType: prospect.activityType || undefined,
-              templateSubject: template.subject,
-              templateBody: template.body,
-            });
-            return body;
-          }
-        );
+        try {
+          const result = await resendEmailSender.sendBulkEmails(
+            campaign,
+            prospectsWithEmail,
+            template.subject,
+            async (prospect) => {
+              const { body } = await emailGenerator.generatePersonalizedEmail({
+                companyName: prospect.companyName,
+                domain: prospect.domain || undefined,
+                region: prospect.region || undefined,
+                activityType: prospect.activityType || undefined,
+                templateSubject: template.subject,
+                templateBody: template.body,
+              });
+              return body;
+            }
+          );
 
-        await storage.updateCampaign(campaignId, {
-          status: "completed",
-          sentCount: result.sent,
-          completedAt: new Date(),
-        });
+          await storage.updateCampaign(campaignId, {
+            status: "completed",
+            sentCount: result.sent,
+            completedAt: new Date(),
+          });
+        } catch (error) {
+          console.error("Campaign execution error:", error);
+          await storage.updateCampaign(campaignId, {
+            status: "failed",
+            completedAt: new Date(),
+          });
+        }
       });
 
-      res.json({ success: true, message: "Campaign launched" });
+      res.json({ success: true, message: "Campaign launched", recipients: prospectsWithEmail.length });
     } catch (error) {
+      console.error("Campaign launch error:", error);
       res.status(500).json({ error: "Failed to launch campaign" });
+    }
+  });
+
+  app.get("/api/email/test-connection", async (_req, res) => {
+    try {
+      const result = await resendEmailSender.testConnection();
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ success: false, error: "Failed to test connection" });
+    }
+  });
+
+  app.post("/api/email/send-test", async (req, res) => {
+    try {
+      const { to, subject, body } = req.body;
+      
+      if (!to || !subject || !body) {
+        return res.status(400).json({ error: "Missing required fields: to, subject, body" });
+      }
+
+      const result = await resendEmailSender.sendEmail(to, subject, body);
+      res.json(result);
+    } catch (error) {
+      console.error("Test email error:", error);
+      res.status(500).json({ success: false, error: "Failed to send test email" });
     }
   });
 
