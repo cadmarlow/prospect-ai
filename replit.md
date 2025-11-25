@@ -6,6 +6,7 @@ Application fullstack de prospection pour agences de développement spécialisé
 
 ProspectAI est un outil complet de prospection qui:
 - **Scrape intelligemment** via Firecrawl + GPT-4 (gestion auto des CAPTCHAs)
+- **Enrichit les données** via Hunter.io (domaine + email automatiques)
 - **Génère des emails personnalisés** avec OpenAI GPT-4
 - **Envoie de vrais emails** via Resend avec tracking
 - **Gère des campagnes complètes** avec throttling et statistiques
@@ -19,6 +20,13 @@ ProspectAI est un outil complet de prospection qui:
 - **Extraction IA**: GPT-4 analyse le contenu et extrait les données structurées
 - **Gestion automatique**: CAPTCHAs, JavaScript, anti-bots
 
+### ✅ Enrichissement avec Hunter.io
+- **Recherche de domaine**: Trouve le domaine à partir du nom de l'entreprise
+- **Recherche d'emails**: Trouve les emails professionnels à partir du domaine
+- **Vérification d'emails**: Vérifie que les emails sont valides et délivrables
+- **Enrichissement en masse**: Bouton pour enrichir tous les prospects sans email
+- **Plan gratuit**: 50 recherches + 100 vérifications/mois
+
 ### ✅ Envoi d'Emails avec Resend
 - **Intégration native Replit**: Gestion automatique des credentials
 - **Templates personnalisables**: Variables {{companyName}}, {{domain}}, {{region}}, etc.
@@ -28,7 +36,7 @@ ProspectAI est un outil complet de prospection qui:
 
 ### ✅ Interface Complète
 - **Dashboard**: Statistiques en temps réel
-- **Prospects**: Table avec filtres, recherche, export CSV
+- **Prospects**: Table avec filtres, recherche, export CSV, stats email
 - **Templates**: Création et gestion de templates d'emails
 - **Campagnes**: Lancement et suivi des campagnes
 - **Scraping**: Interface complète avec options avancées
@@ -48,6 +56,7 @@ ProspectAI est un outil complet de prospection qui:
 - **Database**: PostgreSQL (Neon) avec Drizzle ORM
 - **Services**:
   - `firecrawl-scraper.ts`: Scraping IA avec Firecrawl + GPT-4
+  - `hunter-enrichment.ts`: Enrichissement Hunter.io (domaine + email)
   - `email-generator.ts`: Génération d'emails personnalisés avec OpenAI
   - `resend-email-sender.ts`: Envoi d'emails via Resend
 - **API**: REST avec validation Zod
@@ -71,6 +80,7 @@ ProspectAI est un outil complet de prospection qui:
 ├── server/
 │   ├── services/
 │   │   ├── firecrawl-scraper.ts  # Scraping IA
+│   │   ├── hunter-enrichment.ts  # Enrichissement Hunter.io
 │   │   ├── email-generator.ts     # OpenAI integration
 │   │   └── resend-email-sender.ts # Envoi emails Resend
 │   ├── db.ts
@@ -85,6 +95,7 @@ ProspectAI est un outil complet de prospection qui:
 ### Variables d'environnement (Secrets)
 - `DATABASE_URL`: PostgreSQL connection string
 - `FIRECRAWL_API_KEY`: Clé API Firecrawl (https://firecrawl.dev)
+- `HUNTER_API_KEY`: Clé API Hunter.io (https://hunter.io)
 - `OPENAI_API_KEY`: Clé API OpenAI
 
 ### Intégrations Replit
@@ -108,13 +119,19 @@ Tables principales:
 4. (Optionnel) Options avancées: mots-clés, nombre max
 5. Lancer le scraping
 
-### 2. Créer un template
+### 2. Enrichir les prospects (Hunter.io)
+1. Aller dans l'onglet "Prospects"
+2. Vérifier que Hunter.io est connecté (badge vert)
+3. Cliquer sur "Enrichir (X)" pour trouver les emails manquants
+4. L'enrichissement trouve: domaine → emails → vérifie validité
+
+### 3. Créer un template
 1. Aller dans l'onglet "Templates"
 2. Cliquer sur "Nouveau Template"
 3. Utiliser les variables: `{{companyName}}`, `{{domain}}`, `{{region}}`
 4. Le système ajoute automatiquement `{{aiPersonalization}}`
 
-### 3. Lancer une campagne
+### 4. Lancer une campagne
 1. Aller dans l'onglet "Campagnes"
 2. Vérifier que Resend est connecté (badge vert)
 3. Créer une campagne avec un template
@@ -127,8 +144,8 @@ Tables principales:
 {
   id: string (UUID)
   companyName: string
-  email?: string
-  domain?: string
+  email?: string | null
+  domain?: string | null
   phone?: string
   address?: string
   city?: string
@@ -173,6 +190,10 @@ Tables principales:
 - Plan gratuit: 500 crédits
 - ~$0.64 / 1000 pages
 
+### Hunter.io
+- Plan gratuit: 50 recherches + 100 vérifications/mois
+- Plans payants disponibles
+
 ### Resend
 - Plan gratuit: 100 emails/jour
 - Plan payant: À partir de $20/mois
@@ -184,3 +205,6 @@ Tables principales:
 ## 🌐 Déploiement
 
 L'application est prête pour le déploiement via Replit Deployments.
+
+## 📅 Dernière mise à jour
+25 novembre 2025 - Ajout Hunter.io pour enrichissement automatique (domaine + email)

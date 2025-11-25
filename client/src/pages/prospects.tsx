@@ -51,8 +51,13 @@ export default function Prospects() {
     queryKey: ["/api/enrichment/status"],
   });
 
-  const prospectsWithoutEmail = prospects?.filter(p => !p.email || !p.email.includes('@')) || [];
-  const prospectsWithEmail = prospects?.filter(p => p.email && p.email.includes('@')) || [];
+  // Helper to check if a prospect has a valid email (not null, undefined, empty, or invalid)
+  const hasValidEmail = (email: string | null | undefined) => {
+    return email && email.trim() !== '' && email.includes('@');
+  };
+  
+  const prospectsWithoutEmail = prospects?.filter(p => !hasValidEmail(p.email)) || [];
+  const prospectsWithEmail = prospects?.filter(p => hasValidEmail(p.email)) || [];
 
   const enrichAllMutation = useMutation({
     mutationFn: (limit: number) => apiRequest("POST", "/api/enrichment/all", { limit }),
@@ -280,7 +285,7 @@ export default function Prospects() {
                     )}
                   </TableCell>
                   <TableCell className="font-mono text-sm">
-                    {prospect.email ? (
+                    {hasValidEmail(prospect.email) ? (
                       <span className="text-green-600 dark:text-green-400">{prospect.email}</span>
                     ) : (
                       <span className="text-orange-500">Manquant</span>

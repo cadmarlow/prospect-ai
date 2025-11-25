@@ -299,9 +299,9 @@ class HunterEnrichmentService {
         if (verification) {
           verified = verification.result === 'deliverable';
           if (!verified && verification.result === 'undeliverable') {
-            // Clear invalid email - set to empty string which will be treated as no email
-            await storage.updateProspect(prospectId, { email: '' });
-            email = undefined;
+            // Clear invalid email - set to null to allow re-enrichment
+            await storage.updateProspect(prospectId, { email: null as any });
+            email = null;
           }
         }
       }
