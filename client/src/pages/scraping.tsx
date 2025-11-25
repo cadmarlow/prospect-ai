@@ -117,7 +117,11 @@ export default function Scraping() {
   });
 
   const onSubmit = (data: FormData) => {
-    createMutation.mutate(data);
+    const payload = {
+      ...data,
+      source: useCustomUrl && data.customUrl ? "custom" : data.source,
+    };
+    createMutation.mutate(payload);
   };
 
   const getStatusBadge = (status: string) => {

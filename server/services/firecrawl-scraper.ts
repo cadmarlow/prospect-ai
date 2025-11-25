@@ -26,22 +26,29 @@ export interface ExtractedProspect {
   website?: string;
 }
 
-const PAGESJAUNES_BASE_URL = "https://www.pagesjaunes.fr";
-const CCI_BASE_URL = "https://www.cci.fr";
-
 const REGION_TO_CITY: Record<string, string[]> = {
   "ile-de-france": ["Paris", "Boulogne-Billancourt", "Saint-Denis", "Versailles", "Nanterre"],
   "auvergne-rhone-alpes": ["Lyon", "Grenoble", "Saint-Étienne", "Clermont-Ferrand"],
   "provence-alpes-cote-azur": ["Marseille", "Nice", "Toulon", "Aix-en-Provence"],
   "occitanie": ["Toulouse", "Montpellier", "Nîmes", "Perpignan"],
   "nouvelle-aquitaine": ["Bordeaux", "Limoges", "Poitiers", "La Rochelle"],
+  "bretagne": ["Rennes", "Brest", "Lorient", "Vannes"],
+  "normandie": ["Rouen", "Caen", "Le Havre", "Cherbourg"],
+  "hauts-de-france": ["Lille", "Amiens", "Dunkerque", "Roubaix"],
+  "grand-est": ["Strasbourg", "Reims", "Metz", "Nancy"],
+  "pays-de-la-loire": ["Nantes", "Angers", "Le Mans", "Saint-Nazaire"],
 };
 
 const ACTIVITY_KEYWORDS: Record<string, string[]> = {
-  "immobilier-entreprise": ["immobilier entreprise", "bureaux", "locaux commerciaux", "entrepôts", "immobilier professionnel"],
-  "promotion-immobiliere": ["promoteur immobilier", "promotion immobilière", "construction", "programmes neufs"],
-  "gestion-patrimoine": ["gestion patrimoine", "conseil patrimonial", "investissement immobilier"],
+  "immobilier-entreprise": ["immobilier entreprise", "bureaux", "locaux professionnels"],
+  "promotion-immobiliere": ["promoteur immobilier", "promotion immobiliere"],
+  "gestion-patrimoine": ["gestion patrimoine", "conseil patrimonial"],
+  "agence-immobiliere": ["agence immobiliere", "agent immobilier"],
+  "investissement": ["investissement immobilier", "SCPI"],
 };
+
+const PAGESJAUNES_BASE_URL = "https://www.pagesjaunes.fr";
+const CCI_BASE_URL = "https://annuaire.entreprises.cci.fr";
 
 export class FirecrawlScraper {
   private firecrawl: FirecrawlApp | null = null;
@@ -62,15 +69,20 @@ export class FirecrawlScraper {
     const city = config.city || cities[0];
     const keywords = config.keywords || ACTIVITY_KEYWORDS[config.activityType]?.[0] || "immobilier entreprise";
     
-    const encodedKeywords = encodeURIComponent(keywords);
-    const encodedCity = encodeURIComponent(city);
+    // Format correct pour Pages Jaunes: /annuaire/chercherlespros?quoiqui=KEYWORDS&ou=CITY
+    const cleanKeywords = keywords.replace(/[^\w\s]/g, ' ').trim();
+    const cleanCity = city.replace(/[^\w\s-]/g, '').trim();
     
-    return `${PAGESJAUNES_BASE_URL}/annuaire/chercherlespros?quoiqui=${encodedKeywords}&ou=${encodedCity}`;
+    return `${PAGESJAUNES_BASE_URL}/annuaire/chercherlespros?quoiqui=${encodeURIComponent(cleanKeywords)}&ou=${encodeURIComponent(cleanCity)}`;
   }
 
   private buildCCIUrl(config: ScrapingConfig): string {
+    const cities = REGION_TO_CITY[config.region] || ["Paris"];
+    const city = config.city || cities[0];
     const keywords = config.keywords || ACTIVITY_KEYWORDS[config.activityType]?.[0] || "immobilier";
-    return `${CCI_BASE_URL}/annuaire-entreprises?q=${encodeURIComponent(keywords)}&region=${config.region}`;
+    
+    // Annuaire entreprises CCI: recherche par activité et localisation
+    return `${CCI_BASE_URL}/recherche?activite=${encodeURIComponent(keywords)}&localisation=${encodeURIComponent(city)}`;
   }
 
   private buildGoogleSearchUrl(config: ScrapingConfig): string {
@@ -138,43 +150,50 @@ ${pageContent.substring(0, 15000)}`
     const allProspects: ExtractedProspect[] = [];
     const maxResults = config.maxResults || 20;
 
-    console.log(`[Firecrawl] Scraping Pages Jaunes: ${url}`);
+    console.log(`[Firecrawl] Scraping Pages Jaunes URL: ${url}`);
 
     try {
-      const crawlResponse = await firecrawl.crawlUrl(url, {
-        limit: Math.min(5, Math.ceil(maxResults / 10)),
-        scrapeOptions: {
-          formats: ["markdown", "html"],
-        },
+      // Use scrapeUrl first (simpler and more reliable for single pages)
+      console.log(`[Firecrawl] Attempting single page scrape...`);
+      const scrapeResponse = await firecrawl.scrapeUrl(url, {
+        formats: ["markdown"],
       });
+      
+      console.log(`[Firecrawl] Scrape response success: ${scrapeResponse.success}`);
+      
+      if (scrapeResponse.success && scrapeResponse.markdown) {
+        console.log(`[Firecrawl] Got ${scrapeResponse.markdown.length} chars of content`);
+        const prospects = await this.extractProspectsWithAI(scrapeResponse.markdown, config);
+        console.log(`[Firecrawl] AI extracted ${prospects.length} prospects`);
+        allProspects.push(...prospects);
+      } else {
+        console.log(`[Firecrawl] No markdown content received, trying crawl...`);
+        
+        // Fallback to crawl for multi-page results
+        const crawlResponse = await firecrawl.crawlUrl(url, {
+          limit: Math.min(3, Math.ceil(maxResults / 10)),
+          scrapeOptions: {
+            formats: ["markdown"],
+          },
+        });
 
-      if (crawlResponse.success && crawlResponse.data) {
-        for (const page of crawlResponse.data) {
-          if (page.markdown) {
-            const prospects = await this.extractProspectsWithAI(page.markdown, config);
-            allProspects.push(...prospects);
-            
-            if (allProspects.length >= maxResults) break;
+        if (crawlResponse.success && crawlResponse.data) {
+          console.log(`[Firecrawl] Crawl got ${crawlResponse.data.length} pages`);
+          for (const page of crawlResponse.data) {
+            if (page.markdown) {
+              const prospects = await this.extractProspectsWithAI(page.markdown, config);
+              allProspects.push(...prospects);
+              if (allProspects.length >= maxResults) break;
+            }
           }
         }
       }
-    } catch (error) {
-      console.error("[Firecrawl] Pages Jaunes scraping error:", error);
-      
-      try {
-        const scrapeResponse = await firecrawl.scrapeUrl(url, {
-          formats: ["markdown"],
-        });
-        
-        if (scrapeResponse.success && scrapeResponse.markdown) {
-          const prospects = await this.extractProspectsWithAI(scrapeResponse.markdown, config);
-          allProspects.push(...prospects);
-        }
-      } catch (fallbackError) {
-        console.error("[Firecrawl] Fallback scrape also failed:", fallbackError);
-      }
+    } catch (error: any) {
+      console.error("[Firecrawl] Pages Jaunes scraping error:", error?.message || error);
     }
 
+    console.log(`[Firecrawl] Total prospects found: ${allProspects.length}`);
+    
     return allProspects.slice(0, maxResults).map(p => ({
       ...p,
       region: config.region,
@@ -187,23 +206,30 @@ ${pageContent.substring(0, 15000)}`
     const url = this.buildCCIUrl(config);
     const maxResults = config.maxResults || 20;
 
-    console.log(`[Firecrawl] Scraping CCI: ${url}`);
+    console.log(`[Firecrawl] Scraping CCI URL: ${url}`);
 
     try {
+      console.log(`[Firecrawl] Attempting CCI scrape...`);
       const scrapeResponse = await firecrawl.scrapeUrl(url, {
         formats: ["markdown"],
       });
 
+      console.log(`[Firecrawl] CCI scrape response success: ${scrapeResponse.success}`);
+      
       if (scrapeResponse.success && scrapeResponse.markdown) {
+        console.log(`[Firecrawl] CCI got ${scrapeResponse.markdown.length} chars of content`);
         const prospects = await this.extractProspectsWithAI(scrapeResponse.markdown, config);
+        console.log(`[Firecrawl] CCI AI extracted ${prospects.length} prospects`);
         return prospects.slice(0, maxResults).map(p => ({
           ...p,
           region: config.region,
           activityType: config.activityType,
         }));
+      } else {
+        console.log(`[Firecrawl] CCI no markdown content received`);
       }
-    } catch (error) {
-      console.error("[Firecrawl] CCI scraping error:", error);
+    } catch (error: any) {
+      console.error("[Firecrawl] CCI scraping error:", error?.message || error);
     }
 
     return [];
