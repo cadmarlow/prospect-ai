@@ -114,17 +114,7 @@ export class FirecrawlScraper {
       return blacklistPatterns.some(pattern => pattern.test(name));
     };
     
-    // Pattern pour les numéros de téléphone français
-    const phonePattern = /(?:0[1-9](?:[\s.-]?\d{2}){4}|\+33[\s.-]?\d(?:[\s.-]?\d{2}){4})/g;
-    
-    // Pattern pour les emails
-    const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-    
-    const phones = pageContent.match(phonePattern) || [];
-    const emails = pageContent.match(emailPattern) || [];
-    
     // Patterns spécifiques Pages Jaunes : chercher les noms d'entreprises
-    // Format typique: "**Nom Entreprise**" ou liens vers fiches
     const pagesJaunesPatterns = [
       // Liens de fiche Pages Jaunes avec nom
       /\[([A-ZÀ-Ÿ][a-zA-ZÀ-ÿ\s&\-']{4,50})\]\([^)]*pagesjaunes[^)]*\)/g,
@@ -138,33 +128,74 @@ export class FirecrawlScraper {
       /\b((?:Century\s*21|Era|Orpi|Laforêt|Guy\s+Hoquet|Stéphane\s+Plaza|Nestenn)[^\n,]{0,40})\b/gi,
     ];
     
-    const companyNames: string[] = [];
+    // Découper le contenu en "blocs" pour associer téléphone/email au bon prospect
+    // Un bloc = section de texte contenant une entreprise
+    const lines = pageContent.split('\n');
+    
+    interface ProspectBlock {
+      companyName: string;
+      phone?: string;
+      email?: string;
+      startIndex: number;
+    }
+    
+    const blocks: ProspectBlock[] = [];
+    
+    // D'abord trouver toutes les entreprises avec leur position dans le texte
     for (const pattern of pagesJaunesPatterns) {
       let match;
       const regex = new RegExp(pattern.source, pattern.flags);
       while ((match = regex.exec(pageContent)) !== null) {
         const name = (match[1] || match[0]).trim();
         
-        // Valider le nom
         if (name.length < 5 || name.length > 60) continue;
         if (/^\d+$/.test(name)) continue;
         if (isBlacklisted(name)) continue;
-        if (companyNames.some(n => n.toLowerCase() === name.toLowerCase())) continue;
+        if (blocks.some(b => b.companyName.toLowerCase() === name.toLowerCase())) continue;
         
-        companyNames.push(name);
+        blocks.push({
+          companyName: name,
+          startIndex: match.index,
+        });
       }
     }
     
-    // Créer des prospects
+    // Trier par position dans le texte
+    blocks.sort((a, b) => a.startIndex - b.startIndex);
+    
+    // Pattern pour les numéros de téléphone français
+    const phonePattern = /(?:0[1-9](?:[\s.-]?\d{2}){4}|\+33[\s.-]?\d(?:[\s.-]?\d{2}){4})/g;
+    const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+    
+    // Pour chaque bloc, chercher le téléphone/email le plus proche (dans les 500 caractères suivants)
+    for (let i = 0; i < blocks.length; i++) {
+      const block = blocks[i];
+      const nextBlockStart = i < blocks.length - 1 ? blocks[i + 1].startIndex : pageContent.length;
+      const searchWindow = pageContent.substring(block.startIndex, Math.min(block.startIndex + 500, nextBlockStart));
+      
+      // Chercher téléphone dans la fenêtre
+      const phoneMatches = searchWindow.match(phonePattern);
+      if (phoneMatches && phoneMatches.length > 0) {
+        block.phone = phoneMatches[0];
+      }
+      
+      // Chercher email dans la fenêtre
+      const emailMatches = searchWindow.match(emailPattern);
+      if (emailMatches && emailMatches.length > 0) {
+        block.email = emailMatches[0];
+      }
+    }
+    
+    // Créer les prospects
     const maxResults = config.maxResults || 20;
     
-    for (let i = 0; i < Math.min(maxResults, companyNames.length); i++) {
-      const name = companyNames[i];
+    for (let i = 0; i < Math.min(maxResults, blocks.length); i++) {
+      const block = blocks[i];
       
       const prospect: ExtractedProspect = {
-        companyName: name,
-        phone: phones[i] || undefined,
-        email: emails[i] || undefined,
+        companyName: block.companyName,
+        phone: block.phone,
+        email: block.email,
         region: config.region,
         activityType: config.activityType,
       };
@@ -172,11 +203,17 @@ export class FirecrawlScraper {
       prospects.push(prospect);
     }
     
-    console.log(`[Regex] Extracted ${prospects.length} valid company names from content`);
+    console.log(`[Regex] Extracted ${prospects.length} valid prospects with contextual contact data`);
     return prospects;
   }
   
   async extractProspectsWithAI(pageContent: string, config: ScrapingConfig): Promise<ExtractedProspect[]> {
+    // Vérifier si OpenAI est configuré
+    if (!process.env.OPENAI_API_KEY) {
+      console.log("[Firecrawl] No OpenAI API key configured, using regex extraction...");
+      return this.extractProspectsWithRegex(pageContent, config);
+    }
+    
     try {
       const response = await openai.chat.completions.create({
         model: "gpt-4o",
@@ -223,13 +260,10 @@ ${pageContent.substring(0, 15000)}`
     } catch (error: any) {
       console.error("AI extraction error:", error?.message || error);
       
-      // Fallback to regex extraction if AI fails (quota exceeded, etc.)
-      if (error?.code === 'insufficient_quota' || error?.status === 429) {
-        console.log("[Firecrawl] AI quota exceeded, falling back to regex extraction...");
-        return this.extractProspectsWithRegex(pageContent, config);
-      }
-      
-      return [];
+      // Fallback to regex extraction for ALL OpenAI errors
+      // This includes: quota exceeded (429), auth errors (401), server errors (500), etc.
+      console.log("[Firecrawl] AI extraction failed, falling back to regex extraction...");
+      return this.extractProspectsWithRegex(pageContent, config);
     }
   }
 
