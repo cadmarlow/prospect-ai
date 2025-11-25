@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { firecrawlScraper } from "./services/firecrawl-scraper";
 import { emailGenerator } from "./services/email-generator";
 import { resendEmailSender } from "./services/resend-email-sender";
+import { hunterService } from "./services/hunter-enrichment";
 import { insertProspectSchema, insertEmailTemplateSchema, insertCampaignSchema, insertScrapingJobSchema } from "@shared/schema";
 import { z } from "zod";
 
@@ -257,6 +258,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Scraping start error:", error);
       res.status(400).json({ error: "Invalid scraping job data" });
+    }
+  });
+
+  // Hunter.io Enrichment API Routes
+  app.get("/api/enrichment/status", async (_req, res) => {
+    try {
+      const result = await hunterService.checkConnection();
+      res.json(result);
+    } catch (error: any) {
+      res.json({ success: false, error: error.message });
+    }
+  });
+
+  app.post("/api/enrichment/prospect/:id", async (req, res) => {
+    try {
+      const prospectId = req.params.id;
+      const result = await hunterService.enrichProspect(prospectId);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.post("/api/enrichment/all", async (req, res) => {
+    try {
+      const { limit = 50 } = req.body;
+      
+      // Get count of prospects without email for immediate response
+      const prospects = await storage.getProspects();
+      const prospectsWithoutEmail = prospects.filter(p => !p.email || !p.email.includes('@'));
+      const toEnrich = Math.min(prospectsWithoutEmail.length, limit);
+
+      // Start enrichment in background
+      setImmediate(async () => {
+        try {
+          await hunterService.enrichAllProspects({ 
+            onlyWithoutEmail: true, 
+            limit,
+            delayMs: 1000 // Rate limit: 1 request per second
+          });
+        } catch (error) {
+          console.error("Bulk enrichment error:", error);
+        }
+      });
+
+      res.json({ 
+        success: true, 
+        message: `Enrichment started for ${toEnrich} prospects`,
+        total: toEnrich
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.post("/api/enrichment/verify-email", async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) {
+        return res.status(400).json({ error: "Email is required" });
+      }
+      const result = await hunterService.verifyEmail(email);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.post("/api/enrichment/search-domain", async (req, res) => {
+    try {
+      const { domain } = req.body;
+      if (!domain) {
+        return res.status(400).json({ error: "Domain is required" });
+      }
+      const result = await hunterService.searchDomain(domain);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
     }
   });
 
