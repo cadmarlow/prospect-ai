@@ -1,10 +1,11 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { webScraper } from "./services/scraper";
+import { firecrawlScraper } from "./services/firecrawl-scraper";
 import { emailGenerator } from "./services/email-generator";
 import { emailSender } from "./services/email-sender";
 import { insertProspectSchema, insertEmailTemplateSchema, insertCampaignSchema, insertScrapingJobSchema } from "@shared/schema";
+import { z } from "zod";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/stats", async (_req, res) => {
@@ -190,22 +191,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const extendedScrapingSchema = insertScrapingJobSchema.extend({
+    keywords: z.string().optional(),
+    maxResults: z.number().min(1).max(100).optional(),
+    customUrl: z.string().url().optional(),
+  });
+
   app.post("/api/scraping/start", async (req, res) => {
     try {
-      const data = insertScrapingJobSchema.parse(req.body);
-      const job = await storage.createScrapingJob(data);
+      const data = extendedScrapingSchema.parse(req.body);
+      const { keywords, maxResults, customUrl, ...jobData } = data;
+      
+      const job = await storage.createScrapingJob(jobData);
 
       setImmediate(async () => {
-        await webScraper.scrape(
+        await firecrawlScraper.scrape(
           job.source,
           job.region || "",
           job.activityType || "",
-          job.id
+          job.id,
+          { keywords, maxResults, customUrl }
         );
       });
 
       res.json(job);
     } catch (error) {
+      console.error("Scraping start error:", error);
       res.status(400).json({ error: "Invalid scraping job data" });
     }
   });

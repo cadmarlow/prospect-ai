@@ -24,6 +24,7 @@ export interface IStorage {
     status?: string;
   }): Promise<Prospect[]>;
   getProspect(id: string): Promise<Prospect | undefined>;
+  getProspectByEmail(email: string): Promise<Prospect | undefined>;
   createProspect(prospect: InsertProspect): Promise<Prospect>;
   updateProspect(id: string, data: Partial<InsertProspect>): Promise<Prospect>;
   
@@ -86,6 +87,11 @@ export class DatabaseStorage implements IStorage {
 
   async getProspect(id: string): Promise<Prospect | undefined> {
     const [prospect] = await db.select().from(prospects).where(eq(prospects.id, id));
+    return prospect || undefined;
+  }
+
+  async getProspectByEmail(email: string): Promise<Prospect | undefined> {
+    const [prospect] = await db.select().from(prospects).where(eq(prospects.email, email));
     return prospect || undefined;
   }
 
