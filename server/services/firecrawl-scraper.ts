@@ -94,6 +94,88 @@ export class FirecrawlScraper {
     return `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`;
   }
 
+  extractProspectsWithRegex(pageContent: string, config: ScrapingConfig): ExtractedProspect[] {
+    const prospects: ExtractedProspect[] = [];
+    
+    // Mots à ignorer (interface Pages Jaunes, texte générique, marques connues)
+    const blacklistPatterns = [
+      /utilisateur/i, /professionnel/i, /contenu/i, /édité/i,
+      /conseil/i, /bons?\s+conseils?/i, /très\s/i, /rigueur/i,
+      /accueil/i, /contact/i, /menu/i, /recherche/i, /connexion/i,
+      /inscription/i, /partager/i, /évaluation/i, /avis/i,
+      /modifier/i, /supprimer/i, /signaler/i, /voir\s+plus/i,
+      /^\d+\s*utilisateurs?$/i, /afficher/i, /résultat/i,
+      /^google$/i, /^facebook$/i, /^twitter$/i, /^linkedin$/i,
+      /^apple$/i, /^microsoft$/i, /^amazon$/i,
+      /pagesjaunes/i, /annuaire/i, /cookies/i, /confidentialité/i
+    ];
+    
+    const isBlacklisted = (name: string): boolean => {
+      return blacklistPatterns.some(pattern => pattern.test(name));
+    };
+    
+    // Pattern pour les numéros de téléphone français
+    const phonePattern = /(?:0[1-9](?:[\s.-]?\d{2}){4}|\+33[\s.-]?\d(?:[\s.-]?\d{2}){4})/g;
+    
+    // Pattern pour les emails
+    const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+    
+    const phones = pageContent.match(phonePattern) || [];
+    const emails = pageContent.match(emailPattern) || [];
+    
+    // Patterns spécifiques Pages Jaunes : chercher les noms d'entreprises
+    // Format typique: "**Nom Entreprise**" ou liens vers fiches
+    const pagesJaunesPatterns = [
+      // Liens de fiche Pages Jaunes avec nom
+      /\[([A-ZÀ-Ÿ][a-zA-ZÀ-ÿ\s&\-']{4,50})\]\([^)]*pagesjaunes[^)]*\)/g,
+      // Noms en gras markdown (typique du format firecrawl)
+      /\*\*([A-ZÀ-Ÿ][a-zA-ZÀ-ÿ\s&\-']{4,50})\*\*/g,
+      // Noms avec formes juridiques
+      /\b((?:Cabinet|Agence|Groupe|SCI|SARL|SAS|SA|EURL)\s+[A-ZÀ-Ÿ][a-zA-ZÀ-ÿ\s&\-']{3,40})\b/g,
+      // Noms d'entreprises immobilières
+      /\b([A-ZÀ-Ÿ][a-zA-ZÀ-ÿ\s&\-']{2,30}\s+(?:Immobilier|Immo|Conseil|Patrimoine|Gestion)(?:\s+[A-Za-zÀ-ÿ]{2,20})?)\b/g,
+      // Century 21, Era, Orpi, etc.
+      /\b((?:Century\s*21|Era|Orpi|Laforêt|Guy\s+Hoquet|Stéphane\s+Plaza|Nestenn)[^\n,]{0,40})\b/gi,
+    ];
+    
+    const companyNames: string[] = [];
+    for (const pattern of pagesJaunesPatterns) {
+      let match;
+      const regex = new RegExp(pattern.source, pattern.flags);
+      while ((match = regex.exec(pageContent)) !== null) {
+        const name = (match[1] || match[0]).trim();
+        
+        // Valider le nom
+        if (name.length < 5 || name.length > 60) continue;
+        if (/^\d+$/.test(name)) continue;
+        if (isBlacklisted(name)) continue;
+        if (companyNames.some(n => n.toLowerCase() === name.toLowerCase())) continue;
+        
+        companyNames.push(name);
+      }
+    }
+    
+    // Créer des prospects
+    const maxResults = config.maxResults || 20;
+    
+    for (let i = 0; i < Math.min(maxResults, companyNames.length); i++) {
+      const name = companyNames[i];
+      
+      const prospect: ExtractedProspect = {
+        companyName: name,
+        phone: phones[i] || undefined,
+        email: emails[i] || undefined,
+        region: config.region,
+        activityType: config.activityType,
+      };
+      
+      prospects.push(prospect);
+    }
+    
+    console.log(`[Regex] Extracted ${prospects.length} valid company names from content`);
+    return prospects;
+  }
+  
   async extractProspectsWithAI(pageContent: string, config: ScrapingConfig): Promise<ExtractedProspect[]> {
     try {
       const response = await openai.chat.completions.create({
@@ -138,8 +220,15 @@ ${pageContent.substring(0, 15000)}`
       if (!Array.isArray(prospects)) return [];
 
       return prospects.filter((p: any) => p.companyName && p.companyName.trim() !== "");
-    } catch (error) {
-      console.error("AI extraction error:", error);
+    } catch (error: any) {
+      console.error("AI extraction error:", error?.message || error);
+      
+      // Fallback to regex extraction if AI fails (quota exceeded, etc.)
+      if (error?.code === 'insufficient_quota' || error?.status === 429) {
+        console.log("[Firecrawl] AI quota exceeded, falling back to regex extraction...");
+        return this.extractProspectsWithRegex(pageContent, config);
+      }
+      
       return [];
     }
   }
@@ -203,35 +292,41 @@ ${pageContent.substring(0, 15000)}`
 
   async scrapeCCI(config: ScrapingConfig): Promise<ExtractedProspect[]> {
     const firecrawl = this.initFirecrawl();
-    const url = this.buildCCIUrl(config);
     const maxResults = config.maxResults || 20;
+    
+    // Essayer différentes URLs CCI
+    const cciUrls = [
+      this.buildCCIUrl(config),
+      `https://www.cci.fr/recherche?type=entreprise&q=${encodeURIComponent(config.activityType || 'immobilier')}`,
+    ];
 
-    console.log(`[Firecrawl] Scraping CCI URL: ${url}`);
+    for (const url of cciUrls) {
+      console.log(`[Firecrawl] Trying CCI URL: ${url}`);
 
-    try {
-      console.log(`[Firecrawl] Attempting CCI scrape...`);
-      const scrapeResponse = await firecrawl.scrapeUrl(url, {
-        formats: ["markdown"],
-      });
+      try {
+        const scrapeResponse = await firecrawl.scrapeUrl(url, {
+          formats: ["markdown"],
+        });
 
-      console.log(`[Firecrawl] CCI scrape response success: ${scrapeResponse.success}`);
-      
-      if (scrapeResponse.success && scrapeResponse.markdown) {
-        console.log(`[Firecrawl] CCI got ${scrapeResponse.markdown.length} chars of content`);
-        const prospects = await this.extractProspectsWithAI(scrapeResponse.markdown, config);
-        console.log(`[Firecrawl] CCI AI extracted ${prospects.length} prospects`);
-        return prospects.slice(0, maxResults).map(p => ({
-          ...p,
-          region: config.region,
-          activityType: config.activityType,
-        }));
-      } else {
-        console.log(`[Firecrawl] CCI no markdown content received`);
+        if (scrapeResponse && scrapeResponse.success && scrapeResponse.markdown) {
+          console.log(`[Firecrawl] CCI got ${scrapeResponse.markdown.length} chars of content`);
+          const prospects = await this.extractProspectsWithAI(scrapeResponse.markdown, config);
+          console.log(`[Firecrawl] CCI extracted ${prospects.length} prospects`);
+          
+          if (prospects.length > 0) {
+            return prospects.slice(0, maxResults).map(p => ({
+              ...p,
+              region: config.region,
+              activityType: config.activityType,
+            }));
+          }
+        }
+      } catch (error: any) {
+        console.error(`[Firecrawl] CCI error for ${url}:`, error?.message || error);
       }
-    } catch (error: any) {
-      console.error("[Firecrawl] CCI scraping error:", error?.message || error);
     }
 
+    console.log(`[Firecrawl] CCI: no data found from any source`);
     return [];
   }
 
