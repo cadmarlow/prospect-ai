@@ -11,6 +11,7 @@ import Prospects from "@/pages/prospects";
 import Templates from "@/pages/templates";
 import Campaigns from "@/pages/campaigns";
 import Scraping from "@/pages/scraping";
+import Settings from "@/pages/settings";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -21,6 +22,7 @@ function Router() {
       <Route path="/templates" component={Templates} />
       <Route path="/campaigns" component={Campaigns} />
       <Route path="/scraping" component={Scraping} />
+      <Route path="/settings" component={Settings} />
       <Route component={NotFound} />
     </Switch>
   );

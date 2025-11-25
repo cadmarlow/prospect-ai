@@ -4,6 +4,7 @@ import {
   Mail,
   FileText,
   Database,
+  Settings,
 } from "lucide-react";
 import {
   Sidebar,
@@ -47,6 +48,12 @@ const menuItems = [
     url: "/scraping",
     icon: Database,
     testId: "link-scraping",
+  },
+  {
+    title: "Paramètres",
+    url: "/settings",
+    icon: Settings,
+    testId: "link-settings",
   },
 ];
 

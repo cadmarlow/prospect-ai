@@ -339,6 +339,173 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Settings API Routes
+  app.get("/api/settings/services", async (_req, res) => {
+    try {
+      const services = [];
+
+      // Check Firecrawl
+      const firecrawlKey = process.env.FIRECRAWL_API_KEY;
+      services.push({
+        id: "firecrawl",
+        name: "Firecrawl",
+        description: "Scraping web intelligent avec gestion automatique des CAPTCHAs",
+        status: firecrawlKey ? "connected" : "not_configured",
+        configured: !!firecrawlKey,
+        secretName: "FIRECRAWL_API_KEY",
+        docsUrl: "https://firecrawl.dev",
+      });
+
+      // Check Hunter.io
+      const hunterKey = process.env.HUNTER_API_KEY;
+      let hunterStatus = "not_configured";
+      let hunterQuota = null;
+      if (hunterKey) {
+        try {
+          const hunterCheck = await hunterService.checkConnection();
+          hunterStatus = hunterCheck.success ? "connected" : "error";
+          if (hunterCheck.account) {
+            hunterQuota = {
+              searches: hunterCheck.account.calls?.available,
+              verifications: hunterCheck.account.requests?.verifications?.available,
+            };
+          }
+        } catch {
+          hunterStatus = "error";
+        }
+      }
+      services.push({
+        id: "hunter",
+        name: "Hunter.io",
+        description: "Recherche de domaines et emails professionnels",
+        status: hunterStatus,
+        configured: !!hunterKey,
+        secretName: "HUNTER_API_KEY",
+        docsUrl: "https://hunter.io",
+        quota: hunterQuota,
+      });
+
+      // Check OpenAI
+      const openaiKey = process.env.OPENAI_API_KEY;
+      services.push({
+        id: "openai",
+        name: "OpenAI",
+        description: "Extraction IA et génération d'emails personnalisés",
+        status: openaiKey ? "connected" : "not_configured",
+        configured: !!openaiKey,
+        secretName: "OPENAI_API_KEY",
+        docsUrl: "https://platform.openai.com",
+        note: !openaiKey ? "Mode fallback regex actif pour le scraping" : undefined,
+      });
+
+      // Check Resend (via Replit connector)
+      let resendStatus = "not_configured";
+      let resendEmail = null;
+      try {
+        const resendCheck = await resendEmailSender.testConnection();
+        resendStatus = resendCheck.success ? "connected" : "not_configured";
+        resendEmail = resendCheck.fromEmail;
+      } catch {
+        resendStatus = "not_configured";
+      }
+      services.push({
+        id: "resend",
+        name: "Resend",
+        description: "Service d'envoi d'emails transactionnels",
+        status: resendStatus,
+        configured: resendStatus === "connected",
+        fromEmail: resendEmail,
+        isReplitConnector: true,
+        docsUrl: "https://resend.com",
+        note: "Configuré via le connecteur Replit (pas besoin de SMTP)",
+      });
+
+      res.json({ services });
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch services status" });
+    }
+  });
+
+  // AI Template Generation
+  app.post("/api/templates/generate", async (req, res) => {
+    try {
+      const { industry, tone, purpose, companyType } = req.body;
+
+      if (!industry || !purpose) {
+        return res.status(400).json({ error: "Industry and purpose are required" });
+      }
+
+      // Use OpenAI GPT-3.5-turbo (cheaper model)
+      const OpenAI = (await import("openai")).default;
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-3.5-turbo",
+        messages: [
+          {
+            role: "system",
+            content: `Tu es un expert en rédaction d'emails de prospection B2B en français. Tu crées des templates d'emails professionnels et efficaces.
+
+Règles:
+- Utilise les variables {{companyName}}, {{domain}}, {{region}} dans le contenu
+- Ajoute {{aiPersonalization}} quelque part pour la personnalisation automatique
+- Le ton doit être professionnel mais pas trop formel
+- L'email doit être concis (max 150 mots)
+- Inclus un call-to-action clair
+- Ne mets pas de signature (elle sera ajoutée automatiquement)
+
+Retourne un JSON avec: { "name": "...", "subject": "...", "body": "...", "category": "..." }`
+          },
+          {
+            role: "user",
+            content: `Crée un template d'email de prospection pour:
+- Secteur: ${industry}
+- Objectif: ${purpose}
+- Type d'entreprise cible: ${companyType || "PME"}
+- Ton souhaité: ${tone || "professionnel"}`
+          }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.7,
+      });
+
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
+        return res.status(500).json({ error: "No response from AI" });
+      }
+
+      const template = JSON.parse(content);
+      res.json({ success: true, template });
+    } catch (error: any) {
+      console.error("AI template generation error:", error);
+      
+      // If OpenAI fails, return a default template
+      if (error?.code === "insufficient_quota" || error?.status === 429 || error?.status === 401) {
+        const defaultTemplate = {
+          name: `Template ${req.body.industry || "Prospection"}`,
+          subject: `Proposition de collaboration - {{companyName}}`,
+          body: `Bonjour,
+
+Je me permets de vous contacter car notre agence accompagne les entreprises comme {{companyName}} dans la région {{region}}.
+
+{{aiPersonalization}}
+
+Notre expertise pourrait vous aider à développer votre activité. Seriez-vous disponible pour un court échange téléphonique cette semaine ?
+
+Dans l'attente de votre retour,`,
+          category: req.body.industry || "prospection",
+        };
+        return res.json({ 
+          success: true, 
+          template: defaultTemplate, 
+          note: "Template par défaut (OpenAI non disponible)" 
+        });
+      }
+      
+      res.status(500).json({ error: "Failed to generate template" });
+    }
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;
